@@ -43,7 +43,11 @@ library(ROCR)
 # read and prep data
 ######################
 
+
+
 asrsx = readRDS("~/Desktop/projects/retina/asrsMembersUS.rds")
+
+asrsx1 = readRDS("~/Desktop/projects/retina/retinaListASRS.rds")
 
 cmsx = readRDS("~/Desktop/projects/retina/cmsData14Enhanced.rds")
 cmsx = cmsx[,-5] #duplicated column credentials
@@ -175,6 +179,60 @@ length(unique(matchedF3$npi)) #1227
 saveRDS(matchedF3, "~/Desktop/projects/retina/asrsCmsF.rds")
 
 ```
+
+
+
+
+
+
+# compare asrs members in CMS prolfile and implied retina specialists from CMS procedures
+
+```{r,eval=TRUE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+
+## read data
+asrs1 = readRDS("~/Desktop/projects/retina/asrsCmsF.rds")
+
+asrs1x = asrs1 %>% group_by(npi) %>% mutate(rank = row_number()) %>% filter(rank==1)
+
+asrs2x = readRDS("~/Desktop/projects/retina/retinaListASRS.rds")
+
+cmsx = readRDS("~/Desktop/projects/retina/cmsData14Enhanced.rds")
+cmsx = cmsx[,-5] #duplicated column credentials
+
+
+# create comprehensive df from asrs2 that codes more than just 4 codes screened for
+
+npiList = unique(asrs2$npi)
+asrs2 = filter(cmsx, npi %in% npiList)
+
+nrow(asrs2) #17777
+nrow(asrs2x)#999
+
+asrsDiff = anti_join(asrs1x, asrs2, by = "npi")
+nrow(asrsDiff) #731
+
+
+#### dataset list
+# asrs1   - asrs members list 
+# asrs2   - presumeed retinal docs
+# cmsx    - cms total from 14
+
+
+
+##########################################
+## Compare 2 groups
+##########################################
+
+# list of codes and srvccnt
+
+codes1 = asrs1 %>% group_by(code, description) %>% summarise(count = n()) %>%  arrange(-desc(count))
+
+codes2 = asrs2 %>% group_by(code, description) %>% summarise(count = n()) %>%  arrange(-desc(count))
+
+
+```
+
 
 
 
@@ -338,11 +396,7 @@ retina$matchCrit = paste0(retina$fname,"-", retina$lname, "-",retina$city,"-", r
 
 saveRDS(retina, "~/Desktop/projects/retina/asrsMembersUS.rds")
 
-
-
-
  
-  
 
 ```
 
@@ -350,7 +404,10 @@ saveRDS(retina, "~/Desktop/projects/retina/asrsMembersUS.rds")
 
 
 
-```{r,, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+
+
+```{r, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
 
 library(caret)
 library(pROC)

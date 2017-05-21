@@ -226,10 +226,11 @@ nrow(asrsDiff) #731
 
 # list of codes and srvccnt
 
-codes1 = asrs1 %>% group_by(code, description) %>% summarise(count = n()) %>%  arrange(-desc(count))
+codes1 = asrs1 %>% group_by(code, description) %>% summarise(count = n(), tppMean = mean(tpp)) %>%  arrange(-desc(count)) 
 
-codes2 = asrs2 %>% group_by(code, description) %>% summarise(count = n()) %>%  arrange(-desc(count))
+codes2 = asrs2 %>% group_by(code, description) %>% summarise(count = n(),tppMean = mean(tpp)) %>%  arrange(-desc(count))
 
+codesx = inner_join(codes1, codes2, by = "code") %>% select(-description.y)
 
 ```
 

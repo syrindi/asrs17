@@ -34,21 +34,6 @@ library(ROCR)
 
 
 
-- datasets were read in from CMS('14) and ASRS
-- 1st match criteria
-    - fname-lname-city-state
-- 2nd match criteria
-    - lname-state
-    - no other duplicate names in the same state
-- 3rd match criteria
-    - fname-lname-state
-- 4th criteria
-    - scrub to make sure core retinal codes present
-- Will not catch:
-    - moved locations between 2014 and 2016 since the CMS dataset is for 2016
-    - academics not billing CMS
-
-
 
 
 
@@ -192,6 +177,21 @@ saveRDS(matchedF3, "~/Desktop/projects/retina/asrsCmsF.rds")
 ```
 
 
+
+
+- datasets were read in from CMS('14) and ASRS
+- 1st match criteria
+    - fname-lname-city-state
+- 2nd match criteria
+    - lname-state
+    - no other duplicate names in the same state
+- 3rd match criteria
+    - fname-lname-state
+- 4th criteria
+    - scrub to make sure core retinal codes present
+- Will not catch:
+    - moved locations between 2014 and 2016 since the CMS dataset is for 2016
+    - academics not billing CMS
 
 
 

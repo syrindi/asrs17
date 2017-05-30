@@ -1,0 +1,424 @@
+---
+author: "PJL"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, echo = FALSE, eval=TRUE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+library(rvest)
+library(stringr)
+library(dplyr)
+library(purrr)
+library(data.table)
+library(magrittr)
+library(tidyverse)
+library(caret)
+library(pROC)
+library(mlbench)
+library(GGally)
+library(data.table)
+library(dplyr)
+library(class)
+library(gmodels)
+library(ROCR)
+#options(scipen =99)
+```
+
+
+
+
+
+
+
+
+
+
+- datasets were read in from CMS('14) and ASRS
+- 1st match criteria
+    - fname-lname-city-state
+- 2nd match criteria
+    - lname-state
+    - no other duplicate names in the same state
+- 3rd match criteria
+    - fname-lname-state
+- 4th criteria
+    - scrub to make sure core retinal codes present
+- Will not catch:
+    - moved locations between 2014 and 2016 since the CMS dataset is for 2016
+    - academics not billing CMS
+
+
+
+
+
+```{r, readCMSx, echo = FALSE, eval=TRUE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+######################
+# read and prep data
+######################
+
+asrsx = readRDS("~/Desktop/projects/retina/asrsMembersUS.rds")
+
+cmsx = readRDS("~/Desktop/projects/retina/cmsData14Enhanced.rds")
+cmsx = cmsx[,-5] #duplicated column credentials
+
+
+# one row per name from cms for easier name comp
+cmsx1 = cmsx %>%  group_by(matchCrit) %>%  mutate(rowNum = row_number()) %>%  filter(rowNum==1)
+
+
+
+#####################
+# - create matchCrit
+# - inner_join
+# - remove matchCrit
+# - rbind include df
+# - create leftOut df
+######################
+
+
+############################
+#   Initial Match
+#   initial inner_join between asrsx and cmsx
+############################
+
+## match criteria with cms
+asrsx$matchCrit = paste0(asrsx$fname,"-", asrsx$lname, "-",asrsx$city,"-", asrsx$state)
+
+cmsx$matchCrit = paste0(cmsx$fname,"-", cmsx$lname, "-",cmsx$city,"-", cmsx$state)
+
+
+## inner_join
+matched1 = inner_join(cmsx, asrsx, by = "matchCrit")
+nrow(matched1)
+length(unique(matched1$name))
+
+
+# unmatched
+unmatched1 = anti_join(asrsx, matched1, by = "name" )
+nrow(unmatched1)
+
+# remove matchCrit column for easier rbind and matching downstream
+matched1 = select(matched1, -grep("matchCrit", names(matched1)))
+
+unmatched1 = select(unmatched1, -grep("matchCrit", names(unmatched1)))
+
+
+
+########################################
+##  second match using second matchCrit using leftOut df
+##  test for same last name in state and keep if no other Ophth with same last name
+#########################################
+
+# create match criteria
+unmatched1$matchCrit = sprintf("%s-%s", unmatched1$lname, unmatched1$state)
+cmsx$matchCrit = sprintf("%s-%s", cmsx$lname, cmsx$state)
+
+
+# inner_join using match criteria
+matched2 = dplyr::inner_join(cmsx, unmatched1, by = "matchCrit") 
+
+nrow(matched2)
+length(unique(matched2$npi))
+ncol(matched2)
+
+##########################
+## additional rule
+    ##    - select providers where there is only one provider with the same lname in the state if that name is in the asrsx list
+##########################
+matched2a = matched2 %>% group_by(state.x, lname.x) %>%  mutate(uniqueProv =length(unique(npi)))  %>%  filter(uniqueProv ==1) %>%  select(-uniqueProv)
+
+nrow(matched2a)
+length(unique(matched2a$npi))
+names(matched2a)
+
+
+# clean field names for rbind
+matched2a = matched2a %>% select(-grep("matchCrit", names(matched2a)))
+
+names(matched2a)
+
+
+# rbind the newly discovered group to the original asrsx
+matchedF2 = rbind(data.frame(matched1) ,data.frame(matched2a))
+
+nrow(matchedF2)
+length(unique(matchedF2$npi))
+
+
+## this is what is still left out
+# match by name since its a remnant from the asrsx in both
+unmatched2 = anti_join(asrsx,matchedF2, by = c("name"))
+nrow(unmatched2) #468
+
+nrow(unmatched2) + length(unique(matchedF$npi)) #1659
+nrow(asrsx) # 1663 - lost 4 records
+
+
+#####################################
+## third test leaving out city since this may be misleading (different lcoations for cities for differnet db)
+#####################################
+
+# create matchCrit
+cmsx$matchCrit = paste0(cmsx$fname,"-", cmsx$lname, "-", cmsx$state)
+
+unmatched2$matchCrit = paste0(unmatched2$fname,"-", unmatched2$lname, "-", unmatched2$state)
+
+# inner_join
+matched3 = inner_join(cmsx, unmatched2, by = "matchCrit") 
+nrow(matched3)
+length(unique(matched3$npi))  #36
+
+# unmatched3
+unmatched3 = anti_join(unmatched2, matched3, by = "name")
+nrow(unmatched3)   #432 = nrow(unmatched3) - 36
+
+
+# remove matchCrit to allow rbind
+matched3 = select(matched3, -grep("matchCrit", names(matched3)))
+
+
+# rbind leftIn df
+matchedF3= rbind(data.frame(matchedF2) ,data.frame(matched3))
+
+length(unique(matchedF3$npi)) #1227
+
+
+
+######################
+saveRDS(matchedF3, "~/Desktop/projects/retina/asrsCmsF.rds")
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r asrsScrape, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+## asrs membership scrape and saved data
+
+membersx = list();
+index =1
+
+for (page in 0:55) #this is how the website is set up
+{
+asrsURL = sprintf("http://www.asrs.org/find-a-specialist/results/List?page=%s", page)
+print(asrsURL)
+
+asrs <- read_html(asrsURL)
+
+#Scrape the website for names and address
+#find names - all start with \r\n
+#find index of names
+#find first and last of the index
+#delete other rows
+
+members <- asrs %>% 
+  html_nodes(".pages , .directory .mute , #content-primary a") %>%
+  html_text() 
+
+# these are extraneous lines
+extra = grep("^[0-9]{1,2}$|previous|next|Show|More", members, ignore.case = TRUE)
+
+membersx = c(membersx, members[-extra])
+index = index + 1
+
+}
+
+## this is the concat of all the names and addresses
+dat = unlist(membersx)
+
+#index of names
+record = grep("\r\n[ ]*\r\n", dat)  #all names start like this
+
+#actual names
+names = dat[record]
+names = str_trim(gsub("\r\n","",names))
+
+## traverse through each index of name and get only first address if exists
+namex = list()
+locx = list()
+data = list()
+
+
+for (i in 1:length(record))
+{
+  print(i)
+  namex[[i]] = str_trim(gsub("\r\n","",dat[record[i]]))
+  
+  #if no address, then the next record will be another name
+  # get only one record
+  
+  
+  if (i != length(record) & record[i+1]- record[i] == 1)
+  {
+    locx[[i]] = NA 
+  } else
+  {
+    locx[[i]]  = dat[record[i]+1]
+  }
+  
+  data[[i]] = data.frame(name = names[[i]], location = locx[[i]], stringsAsFactors = FALSE)
+}
+
+  datx = do.call(rbind, data)
+  
+  stateNames = gsub(",","|",toString(state.abb))
+  datx$state = str_extract(datx$location, stateNames)
+
+  saveRDS(datx, "~/Desktop/projects/retina/asrsMembersAll.rds")
+  
+  
+## datx = retina members with address in US
+  retina = datx[!is.na(datx$state),]
+  retina$index = 1:nrow(retina)
+  stateNames1 = gsub(",","$|",toString(state.abb))
+  
+## isolate city  
+  retina$city = gsub("[0-9()-,]","",retina$location)
+  retina$city = gsub(stateNames1,"", retina$city)
+  retina$city = gsub(" - – ","", retina$city)
+  
+## separate out multiple cities listed in one col
+  retina$city = strsplit(retina$city,"&") %>%  map(1) 
+  retina$city = gsub(stateNames,"", retina$city)
+
+## some records from other countrie but with same state initials are included 
+## find and delete
+  others = which(grepl("^ ", retina$city))
+  retina = retina[-others,]
+  
+  
+  # this function extracts last n elements from a list - DEFINE LIST AND WHAT POSITION
+  last <- function(x, pos) { tail(x, n = pos) }
+  
+  
+  # split by comma to separate title
+  x = strsplit(retina$name, ",")    
+  retina$title1 = map(x,2) %>% as.character()
+  retina$title2 = map(x,3) %>% as.character()
+  retina$title3 = map(x,4)%>% as.character()
+  retina$title4 = map(x,5)%>% as.character()
+
+ 
+  
+  retina$name1 = map_chr(x,1)
+  retina$name1 = gsub("Jr.|Sr.|III","", retina$name1)
+  
+  
+  ### function to eliminate  empty elements from lists
+  emptyElement = function(x) {
+    x[nchar(x)>0]
+  }
+
+  
+  # split by space to searate names
+  y = strsplit(unlist(retina$name1)," ")
+  y = map(y, emptyElement)
+  
+  retina$lname = unlist(lapply(y, function(x) tail(x, n=1)))
+  retina$fname= map_chr(y, 1)
+  
+  
+retina = map_df(retina, function(x) ifelse(x == "NULL", NA, x))
+
+retina = map_df(retina, str_trim)
+retina = map_df(retina, toupper)
+
+## match criteria with cms
+retina$matchCrit = paste0(retina$fname,"-", retina$lname, "-",retina$city,"-", retina$state)
+
+
+saveRDS(retina, "~/Desktop/projects/retina/asrsMembersUS.rds")
+
+
+
+
+ 
+  
+
+```
+
+
+
+
+
+```{r,, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+library(caret)
+library(pROC)
+library(mlbench)
+library(GGally)
+library(data.table)
+library(dplyr)
+library(class)
+library(gmodels)
+library(ROCR)
+options("scipen"=999, "digits"=4)
+
+
+##################################################
+#
+#
+#   Building a classification model for providers performing 67028
+#
+###################################################
+
+
+## read eye data
+## read in new data different from arvo to retain some vars
+## create new vars to calculate total cost per patient per npi
+#dd = data.table(readRDS("~/Dropbox/cms/allData/cmseyeAll.rds"))
+
+datax = readRDS("~/Dropbox/cms/arvo16/eyeDataWithDemoPopProfileCreatedDec316.rds")
+# 
+# unique(datax$drugstatus)
+# me = dd[lname =="LEE" & fname =="PAUL" & city=="WILLIAMSVILLE"]
+#  1568536043
+# 
+# me$costPerProc = me$srvccnt * me$avgpmt # total cost per procedure
+# 
+# drug = datax[,(count = length(npi)), by = .(drugstatus)]
+# #N 584388			
+# #Y	17578	
+
+data = datax[year==2014,.(npi, lname, fname,middle, credentials, drugstatus,credentials, gender, city, zip, state, providertype, medicareparticipation, code, description, srvccnt, uniquebene, avgpmt, year, medicalschoolname, numberofgrouppracticemembers, participatinginerx, participatinginpqrs, participatinginehr, population, tpp, leveltpp = tpp, yearSinceGrad)]
+
+dataND = datax[drugstatus =="N"] # remove partD
+
+data$costPerProc = data$srvccnt * data$avgpmt # total cost per procedure
+
+
+data1  = data[, totalPatients := sum(uniquebene), by = .(npi)] 
+data2 = data1[, totalPmt := sum(costPerProc), by =. (npi)]
+data3= data2[, pmtPerPatient := totalPmt/totalPatients, by =. (npi)]
+
+#me = data3[npi =="1568536043"]
+
+
+#### no drug calcs
+
+dataND$costPerProc = dataND$srvccnt * dataND$avgpmt # total cost per procedure
+dataND1  = dataND[, totalPatients := sum(uniquebene), by = .(npi)] 
+dataND2 = dataND1[, totalPmtND := sum(costPerProc), by =. (npi)]
+dataND3= dataND2[, pmtPerPatientND := totalPmtND/totalPatients, by =. (npi)]
+
+## data saved for tulane talk to compare against asrs membership 5/17/17
+
+saveRDS(data3, "~/Desktop/projects/retina/cmsData14Enhanced.rds")
+
+saveRDS(dataND3, "~/Desktop/projects/retina/cmsData14EnhancedND.rds")
+
+
+```
+
+
+
+

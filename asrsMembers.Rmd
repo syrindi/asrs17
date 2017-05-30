@@ -44,10 +44,13 @@ library(ROCR)
 ######################
 
 
-
+# retinal specialists by membership
 asrsx = readRDS("~/Desktop/projects/retina/asrsMembersUS.rds")
 
+
+# retinal specialists by function
 asrsx1 = readRDS("~/Desktop/projects/retina/retinaListASRS.rds")
+
 
 cmsx = readRDS("~/Desktop/projects/retina/cmsData14Enhanced.rds")
 cmsx = cmsx[,-5] #duplicated column credentials

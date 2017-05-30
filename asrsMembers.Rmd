@@ -270,9 +270,23 @@ names(cmsy)
 cmsz = select(cmsy, 2,4,9,15,23,24,25,26,27,28)
 cmsz[,1:9] <- lapply(cmsz[,1:9] , factor)
 
+install.packages('caTools')
+library(caTools)
+set.seed(88)
+split <- sample.split(cmsz$asrs, SplitRatio = 0.75)
+#get training and test data
+train <- subset(cmsz, split == TRUE)
+test <- subset(cmsz, split == FALSE)
+
+nrow(train)
+nrow(test)
+nrow(filter(train, asrs =="y"))#16277
+nrow(filter(train, asrs =="n"))  #136554
+nrow(filter(test, asrs =="y")) #5426
+nrow(filter(test, asrs =="n")) #45518
 
 # logistic regression
-model <- glm(asrs~.,family=binomial(link='logit'),data=cmsz)
+model <- glm(asrs~.,family=binomial(link='logit'),data=train)
 
 
 

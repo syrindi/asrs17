@@ -37,7 +37,7 @@ library(ROCR)
 
 
 
-```{r, readCMSx, echo = FALSE, eval=TRUE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+```{r, readCMSx, echo = FALSE, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
 
 ######################
 # read and prep data
@@ -60,7 +60,7 @@ cmsx = cmsx[,-5] #duplicated column credentials
 cmsx1 = cmsx %>%  group_by(matchCrit) %>%  mutate(rowNum = row_number()) %>%  filter(rowNum==1)
 
 
-
+## steps to merge cms utilization data with asrs members
 #####################
 # - create matchCrit
 # - inner_join
@@ -194,24 +194,34 @@ saveRDS(matchedF3, "~/Desktop/projects/retina/asrsCmsF.rds")
 
 
 ## read data
+
+# asrs members
 asrs1 = readRDS("~/Desktop/projects/retina/asrsCmsF.rds")
 
 asrs1x = asrs1 %>% group_by(npi) %>% mutate(rank = row_number()) %>% filter(rank==1)
 
+
+# retina by profile
 asrs2x = readRDS("~/Desktop/projects/retina/retinaListASRS.rds")
 
+
+# cms enhanced - Ophth only and 2014 only
 cmsx = readRDS("~/Desktop/projects/retina/cmsData14Enhanced.rds")
 cmsx = cmsx[,-5] #duplicated column credentials
 
 
 # create comprehensive df from asrs2 that codes more than just 4 codes screened for
+npiList = unique(asrs2x$npi) #841
 
-npiList = unique(asrs2$npi)
-asrs2 = filter(cmsx, npi %in% npiList)
+asrs2 = filter(cmsx, npi %in% npiList) # filter asrs npi's from cms
 
 nrow(asrs2) #17777
-nrow(asrs2x)#999
+nrow(asrs2x)#999 
+unique(asrs2$npi)  #841
 
+
+
+# the nonintersecting npi's b/w asrs members and retina by fx
 asrsDiff = anti_join(asrs1x, asrs2, by = "npi")
 nrow(asrsDiff) #731
 
@@ -233,7 +243,38 @@ codes1 = asrs1 %>% group_by(code, description) %>% summarise(count = n(), tppMea
 
 codes2 = asrs2 %>% group_by(code, description) %>% summarise(count = n(),tppMean = mean(tpp)) %>%  arrange(-desc(count))
 
-codesx = inner_join(codes1, codes2, by = "code") %>% select(-description.y)
+# combo of codes1 and codes2
+codesx = inner_join(codes1, codes2, by = "code") %>% select(description.y) 
+
+
+
+
+
+#################################
+#  add asrs membership status
+#################################
+
+# members of asrs
+npi1x = unique(asrs1x$npi)
+
+# retina by profile
+npi2x = unique(asrs2x$npi)
+
+# cms data
+cmsy = cmsx
+
+# create new var
+cmsy$asrs = ifelse(cmsy$npi %in% npi1x, "y", "n")
+cmsy$asrs = as.factor(cmsy$asrs)
+names(cmsy)
+cmsz = select(cmsy, 2,3,4,7,9,15,17,18,19,23,24,25,26,27,28)
+cmsz[,1:9] <- lapply(cmsz[,1:9] , factor)
+
+
+# logistic regression
+model <- glm(asrs~.,family=binomial(link='logit'),data=cmsz)
+
+
 
 ```
 

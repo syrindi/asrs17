@@ -267,7 +267,7 @@ cmsy = cmsx
 cmsy$asrs = ifelse(cmsy$npi %in% npi1x, "y", "n")
 cmsy$asrs = as.factor(cmsy$asrs)
 names(cmsy)
-cmsz = select(cmsy, 2,3,4,7,9,15,17,18,19,23,24,25,26,27,28)
+cmsz = select(cmsy, 2,4,9,15,23,24,25,26,27,28)
 cmsz[,1:9] <- lapply(cmsz[,1:9] , factor)
 
 

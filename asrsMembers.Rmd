@@ -938,7 +938,7 @@ retinaOnly = data3[npi %in% r3npi ]
 #nrow(retinaOnly) 17777
 # unique(retinaOnly$npi)  #841 - matches r3
 
-## general population - use data3
+## general population - use data3 (all ophth)
 ## retina population - use retinaOnly
 
 #histogram for intravitreal injections
@@ -989,16 +989,17 @@ hist(prp$srvccnt, xlim = c(1,400), breaks = 400)
 #######
 # separate unique npi to have 1 record per npi
 data3ppp = data3[!duplicated(npi)]
+
 retinaOnlyppp = retinaOnly[!duplicated(npi)]
 
-ppp= filter(data3, code =="67210")
-focal1 = filter(retinaOnly, code =="67210")
+retinaOnlyppp$levelx = cume_dist(retinaOnlyppp$pmtPerPatient)
 
-hist(focal$tpp, xlim = c(0,2.5), breaks = 20)
-hist(focal1$tpp,  xlim = c(0,2.5), breaks = 20)
+retinaOnlyppp1 = filter(retinaOnlyppp, levelx<0.97)
 
-hist(prp$srvccnt, xlim = c(1,400), breaks = 400)
-hist(prp$srvccnt, xlim = c(1,400), breaks = 400)
+
+hist(data3$pmtPerPatient, breaks = 500, xlim = c(0,1000))
+hist(retinaOnlyppp$pmtPerPatient, breaks = 100)
+
 
 
 

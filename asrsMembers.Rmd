@@ -210,6 +210,24 @@ cmsx = readRDS("~/Desktop/projects/retina/cmsData14Enhanced.rds")
 cmsx = cmsx[,-5] #duplicated column credentials
 
 
+
+## calculate cmsx cume_dist
+
+cmsx$tppRank = cume_dist(cmsx$tpp)
+
+cmsx$costperProcRank = cume_dist(cmsx$costPerProc)
+
+cmsx$totalPatientsRank = cume_dist(cmsx$totalPatients)
+
+cmsx$totalPmtRank = cume_dist(cmsx$totalPmt)
+
+cmsx$pmtPerPatientRank = cume_dist(cmsx$pmtPerPatient)
+
+
+
+
+
+
 # create comprehensive df from asrs2 that codes more than just 4 codes screened for
 npiList = unique(asrs2x$npi) #841
 
@@ -217,13 +235,13 @@ asrs2 = filter(cmsx, npi %in% npiList) # filter asrs npi's from cms
 
 nrow(asrs2) #17777
 nrow(asrs2x)#999 
-unique(asrs2$npi)  #841
+#unique(asrs2$npi)  #841
 
 
 
 # the nonintersecting npi's b/w asrs members and retina by fx
 asrsDiff = anti_join(asrs1x, asrs2, by = "npi")
-nrow(asrsDiff) #731
+#nrow(asrsDiff) #731
 
 
 #### dataset list
@@ -263,15 +281,86 @@ npi2x = unique(asrs2x$npi)
 # cms data
 cmsy = cmsx
 
-# create new var
+# create new vars - asrs for membership and fx for functional
 cmsy$asrs = ifelse(cmsy$npi %in% npi1x, "y", "n")
 cmsy$asrs = as.factor(cmsy$asrs)
+
+cmsy$fx = ifelse(cmsy$npi %in% npi2x, "y", "n")
+cmsy$fx = as.factor(cmsy$asrs)
+
+cmsRetinaByFx = filter(cmsy, npi %in% npi2x)  #841 unique npi
+
+cmsRetinaByMembership = filter(cmsy, npi %in% npi1x)  #1227 unique npi
+
+
+# merge retina by fx and membership
+cmsRetinaMerged = rbind(cmsRetinaByFx, cmsRetinaByMembership)
+
+#length(unique(cmsRetinaMerged$npi)) #1572
+
+members = filter(cmsRetinaMerged, asrs == "y")
+nonMembers = filter(cmsRetinaMerged, asrs == "n")
+
+memberCount = length(unique(members$npi)) #1227
+nonMemberCount = length(unique(nonMembers$npi)) #345
+
+
+## calcualte retinal cume_dist
+
+cmsRetinaMerged$tppAdj = cume_dist(cmsRetinaMerged$tpp)
+
+cmsRetinaMerged$costperProcAdj = cume_dist(cmsRetinaMerged$costPerProc)
+
+cmsRetinaMerged$totalPatientsAdj = cume_dist(cmsRetinaMerged$totalPatients)
+
+cmsRetinaMerged$totalPmtAdj = cume_dist(cmsRetinaMerged$totalPmt)
+
+cmsRetinaMerged$pmtPerPatientAdj = cume_dist(cmsRetinaMerged$pmtPerPatient)
+
+## round all numeric columns 
+cmsRetinaMerged[,map_lgl(cmsRetinaMerged, is.numeric)] = round(cmsRetinaMerged[,map_lgl(cmsRetinaMerged, is.numeric)],2)
+
+cmsRetinaFinal = select(cmsRetinaMerged, 1:27, 28,35,29,36,30,37,31,38,32,39,33,34)
+
+saveRDS(cmsRetinaFinal, "~/Desktop/projects/retina/asrsCmsFWithMembershipSstatus.rds")
+
+```
+
+
+- Create a list of retinal practioners by function and membership
+    - There are `r memberCount` members
+    - There are `r nonMemberCount` practioners who are not ASRS members
+    - create variable for ASRS membership and retinal by function (asrs, fx)
+    
+- Rerank each practioner within the retina cohort
+    - tpp, costPerProc, totalPatients, totalPmt, pmtPerPatient  
+
+
+
+### Analysis Using Combined Data(membership, functional)
+
+```{r model1, echo = FALSE, eval = TRUE}
+
+data = readRDS("~/Desktop/projects/retina/asrsCmsFWithMembershipSstatus.rds")
+nrow(data)
+length(unique(data$npi))
+
+hist(data$pmtPerPatient)
+hist(data$pmtPerPatientRank)
+hist(data$pmtPerPatientAdj)
+
+
+```
+
+
+
+```{r model2, echo = FALSE, eval = FALSE}
 names(cmsy)
 cmsz = select(cmsy, 2,4,9,15,23,24,25,26,27,28)
 cmsz[,1:9] <- lapply(cmsz[,1:9] , factor)
 
-install.packages('caTools')
 library(caTools)
+
 set.seed(88)
 split <- sample.split(cmsz$asrs, SplitRatio = 0.75)
 #get training and test data
@@ -284,25 +373,25 @@ nrow(filter(train, asrs =="y"))#16277
 nrow(filter(train, asrs =="n"))  #136554
 nrow(filter(test, asrs =="y")) #5426
 nrow(filter(test, asrs =="n")) #45518
+# 
+# # logistic regression
+# model <- glm(asrs~.,family=binomial(link='logit'),data=train)
 
-# logistic regression
-model <- glm(asrs~.,family=binomial(link='logit'),data=train)
 
-
-
-summary(model)
-predict <- predict(model, type = 'response')
-#confusion matrix
-table(dresstrain$Recommended, predict > 0.5)
-#ROCR Curve
-library(ROCR)
-ROCRpred <- prediction(predict, dresstrain$Recommended)
-ROCRperf <- performance(ROCRpred, 'tpr','fpr')
-plot(ROCRperf, colorize = TRUE, text.adj = c(-0.2,1.7))
-#plot glm
-library(ggplot2)
-ggplot(dresstrain, aes(x=Rating, y=Recommended)) + geom_point() + 
-stat_smooth(method="glm", family="binomial", se=FALSE)
+# 
+# summary(model)
+# predict <- predict(model, type = 'response')
+# #confusion matrix
+# table(dresstrain$Recommended, predict > 0.5)
+# #ROCR Curve
+# library(ROCR)
+# ROCRpred <- prediction(predict, dresstrain$Recommended)
+# ROCRperf <- performance(ROCRpred, 'tpr','fpr')
+# plot(ROCRperf, colorize = TRUE, text.adj = c(-0.2,1.7))
+# #plot glm
+# library(ggplot2)
+# ggplot(dresstrain, aes(x=Rating, y=Recommended)) + geom_point() + 
+# stat_smooth(method="glm", family="binomial", se=FALSE)
 
 
 ```

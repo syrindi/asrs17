@@ -5,7 +5,11 @@ output: html_document
 ---
 
 ```{r, echo = FALSE, eval=TRUE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
-
+library(tm)
+library(wordcloud)
+library("SnowballC")
+library("wordcloud")
+library("RColorBrewer")
 library(rvest)
 library(stringr)
 library(dplyr)
@@ -43,14 +47,6 @@ library(ROCR)
 
 
 
-
-
-
-
-
-
-
-
 ## original code that generated the data/model for ASRS paper
 ```{r, eval = TRUE, echo = FALSE, message=FALSE, warning=FALSE}
 
@@ -67,59 +63,112 @@ library(ROCR)
 ## create new vars to calculate total cost per patient per npi
 #dd = data.table(readRDS("~/Dropbox/cms/allData/cmseyeAll.rds"))
 
-datax = readRDS("~/Dropbox/cms/arvo16/eyeDataWithDemoPopProfileCreatedDec316.rds")
 # 
 # unique(datax$drugstatus)
 # me = dd[lname =="LEE" & fname =="PAUL" & city=="WILLIAMSVILLE"]
 #  1568536043
-# 
+# #me = data3[npi =="1568536043"]
+#me = datax[lname =="LEE" & fname =="PAUL" & city=="WILLIAMSVILLE"]
+
 # me$costPerProc = me$srvccnt * me$avgpmt # total cost per procedure
 # 
 # drug = datax[,(count = length(npi)), by = .(drugstatus)]
 # #N 584388			
 # #Y	17578	
 
+
+
+
+###########################
+#  read data and create datasets with and without drugs
+############################
+
+datax = readRDS("~/Dropbox/cms/arvo16/eyeDataWithDemoPopProfileCreatedDec316.rds")
+
+
 data = datax[year==2014,.(npi, drugstatus,credentials, gender, city, zip, state, providertype, medicareparticipation, code, description, srvccnt, uniquebene, avgpmt, year, medicalschoolname, numberofgrouppracticemembers, participatinginerx, participatinginpqrs, participatinginehr, population, tpp, leveltpp = tpp, yearSinceGrad)]
 
-dataND = datax[drugstatus =="N"] # remove partD
 
-data$costPerProc = data$srvccnt * data$avgpmt # total cost per procedure
+#dataND = datax[drugstatus =="N"] # remove partD
 
+
+#####################
+# add vars for data with and without drugs
+#####################
+
+# with drugs
+
+data$costPerProc = data$srvccnt * data$avgpmt 
 
 data1  = data[, totalPatients := sum(uniquebene), by = .(npi)] 
 data2 = data1[, totalPmt := sum(costPerProc), by =. (npi)]
-data3= data2[, pmtPerPatient := totalPmt/totalPatients, by =. (npi)]
-
-#me = data3[npi =="1568536043"]
+data3 = data2[, pmtPerPatient := totalPmt/totalPatients, by =. (npi)] #prob underestimates since 1 patient can be counted multiple times
 
 
 #### no drug calcs
 
-dataND$costPerProc = dataND$srvccnt * dataND$avgpmt # total cost per procedure
-dataND1  = dataND[, totalPatients := sum(uniquebene), by = .(npi)] 
-dataND2 = dataND1[, totalPmtND := sum(costPerProc), by =. (npi)]
+dataND = data3[drugstatus =="N"] # remove partD
+
+dataND$costPerProc1 = dataND$srvccnt * dataND$avgpmt 
+dataND1  = dataND[, totalPatientsND := sum(uniquebene), by = .(npi)] 
+dataND2 = dataND1[, totalPmtND := sum(costPerProc1), by =. (npi)]
 dataND3= dataND2[, pmtPerPatientND := totalPmtND/totalPatients, by =. (npi)]
 
+nrow(dataND3)
+nrow(data3)
+
+
+
+dataToJoin1 = dataND3[,.(npi, totalPmtND, pmtPerPatientND)] # these are the fields that are different - other vars the same
+dataToJoin = dataToJoin1[!duplicated(npi)]
+nrow(dataToJoin1) #584388
+nrow(dataToJoin1) #15009
+length(unique(dataToJoin1$npi)) #15009
+
+dataJoined = left_join(data, dataToJoin, by = "npi") #2464
+nrow(dataJoined) #203775
+nrow(data) #203775
+length(unique(dataJoined$npi)) #14635
+length(unique(data$npi)) #14635
+
+
+
+data = dataJoined 
+data$pmtPerPatientND1 = data$totalPmt/totalPatients
+
+####################################
 ## data saved for tulane talk to compare against asrs membership 5/17/17
+####################################
 
-saveRDS(data3, "~/Desktop/projects/retina/cmsData14Enhanced.rds")
+saveRDS(data3, "~/Desktop/projects/asrs17/cmsData14Enhanced.rds")
 
-saveRDS(dataND3, "~/Desktop/projects/retina/cmsData14EnhancedND.rds")
+saveRDS(dataND3, "~/Desktop/projects/asrs17/cmsData14EnhancedND.rds")
+
+
 
 
 #############################
-# data5 is the working dataset after cleaning
 # define functional retinal specialists
 # need to perform injx, fa, prp, focal
 #############################
+
+
+##################
+#  define codes needed to be retina specialist
+##################
 
 codes =c("67028","92235","67228","67210","67145")
 
 codesNames = c("injection", "Fluorescein Angiogram", "PRP", "Focal Laser", "Barrier Laser" )
 
 codesDetailed = sprintf("%s (%s)", codes, codesNames)
-#me = datax[lname =="LEE" & fname =="PAUL" & city=="WILLIAMSVILLE"]
 
+
+##################
+#  define datasets for each code
+##################
+
+# with drugs
 
 dataR1 = data3[code == codes[1] & year == 2014 ] #3190
 dataR2 = data3[code == codes[2] & year == 2014 ] #2643
@@ -128,46 +177,82 @@ dataR4 = data3[code == codes[4] & year == 2014 ] #1239
 
 
 
+# without drugs
 
 dataR1ND = dataND3[code == "67028" & year == 2014 ] #3190
 dataR2ND = dataND3[code == "92235" & year == 2014 ] #2643
 dataR3ND = dataND3[code == "67228" & year == 2014 ] #1351
 dataR4ND = dataND3[code == "67210" & year == 2014 ] #1239
-dataToJoin = dataR4ND[,.(npi, totalPmtND, pmtPerPatientND)]
 
-## join totalPmd and pmtPerPatient from drug nad no drug
+dataToJoin = dataR4ND[,.(npi, totalPmtND, pmtPerPatientND)] # these are the fields that are different - other vars the same
 
 
-#retina = join_all(list(dataR1, dataR2, dataR3, dataR4), by='npi', type='inner')  -creates dupl column names
 
-r1 = inner_join(dataR1, dataR2, by = "npi")
-r2 = inner_join(r1, dataR3, by = "npi")
-r3 = inner_join(r2, dataR4, by = "npi")
+r1 = inner_join(dataR1, dataR2, by = "npi") #2464
+r2 = inner_join(r1, dataR3, by = "npi") #1307
+r3 = inner_join(r2, dataR4, by = "npi") #999
 
-retina1 = dplyr::select(r2,1:28 )  # this causes only 67028 to show
+length(unique(r1$npi)) #2252
+length(unique(r2$npi)) #1180
+length(unique(r3$npi)) #841
 
-#retina1 = r2  # this is done to preserve all codes (6/4/17)
+# this causes only 67028 to show
+retina1 = dplyr::select(r2,1:28 ) 
+
 
 
 ## inner_join b/c left join leavessome npis with ND as NA
-retina = inner_join(retina1, dataToJoin, by = "npi")
+#retina = inner_join(retina1, dataToJoin, by = "npi")
+#nrow(retina) #999
+#length(unique(retina$npi)) #841
+
+
+# get npi# and pull from cmsx
+retinaNpi = retina1$npi
+retina = datax[npi %in% retinaNpi]
+retina = inner_join(retina, dataToJoin, by = "npi")
+
+nrow(retina) #17777
+length(unique(retina$npi)) #841
+
+# prob not needed since changed retina df as above
 names(retina) = gsub("[.]x|[.]y", "", names(retina))
+
 retina$levelWithDrug = cume_dist(retina$pmtPerPatient)
+
 retina$levelNoDrug = cume_dist(retina$pmtPerPatientND)
+
+
+
+###############
+#  retina df = comprehensive with and without drugs as separate cols
+###############
+
+
+
+#############
+#  eval change between ND and drug pmts for pmtsPerPatient by Cume-dist
+#############
+
 retina$changeRank = retina$levelWithDrug-retina$levelNoDrug
 
-## saved for comparison to asrs members list for tulane talk 5/21/17
-#saveRDS(retina, "~/Desktop/projects/retina/retinaListASRS.rds")
 
 
-plot(retina$changeRank)
+saveRDS(retina, "~/Desktop/projects/asrs17/retinaByFunctionWithND.rds")
+
+
+# how does the change in ranking show in hist? normal dist
+hist(retina$changeRank, breaks = 40)
+
 change = data.frame(change = retina$changeRank)
 
 change1 = filter(change, change > 0)
 change1SD = round(sd(change1$change),3)
+
 change2 = filter(change, change < 0)
 change2SD = round(sd(change2$change),3)
-changeMean = round(mean(change$change),3)
+
+changeMean = round(mean(change$change),4)
 changeMedian = round(median(change$change),3)
 changeMedianSD = round(sd(changeMedian),3)
 
@@ -185,7 +270,7 @@ threshold = 0.89
 topDrug = filter(retina, levelWithDrug>threshold)$npi
 topNoDrug = filter(retina, levelNoDrug >threshold)$npi
 
-
+# npis over 0.89 in both topDrug and topNoDrug
 overlap = topDrug[topDrug %in% topNoDrug]
  
 
@@ -194,6 +279,8 @@ overlap = topDrug[topDrug %in% topNoDrug]
 
 a = hist(retina$pmtPerPatientND, breaks = 50, main = "Figure B", xlab = "Payment Per Patient", ylab = "Frequency")
 b =hist(retina$pmtPerPatient, breaks = 50,main = "Figure A", xlab = "Payment Per Patient", ylab = "Frequency")
+
+# transformed power distribution to normal by log trans
 c =hist(log(retina$pmtPerPatientND), breaks = 50)
 d = hist(log(retina$pmtPerPatient), breaks = 50)
 
@@ -216,15 +303,20 @@ h = round(max(retina$pmtPerPatientND),3)
 
 #######################################
 ## retina without outliers
+#######################################
 
 #boxplot(retina)
 retinax = retina
 retinax$levelx = cume_dist(retinax$pmtPerPatientND)
+
+
 retina2 = filter(retinax, levelx < 0.97)
 nrow(retina2)
+
 b1 = hist(retina2$pmtPerPatientND,main = "Figure C", xlab = "Payment Per Patient", ylab = "Frequency")
-mean(retina2$pmtPerPatientND)
-sd(retina2$pmtPerPatientND)
+
+print(c("mean pmtPerPatientND",mean(retina2$pmtPerPatientND)))
+print(c("sd",sd(retina2$pmtPerPatientND)))
 min(retina2$pmtPerPatientND)
 max(retina2$pmtPerPatientND)
 sd(retina2$pmtPerPatientND)
@@ -238,6 +330,8 @@ sd(retina2$pmtPerPatientND)
 # 6/4/17 for goanimate asrs presentation
 # r3 = merger of 4 codes - codes are scattered in diff cols
 #    - extract npi and back out from cms dataset for retina
+#################################
+
 
 r3npi = unique(r3$npi)  #841
 retinaOnly = data3[npi %in% r3npi ]
@@ -325,7 +419,7 @@ hist(retinaOnlyppp$pmtPerPatient, breaks = 100)
 
 
 
-```{r asrsScrape, eval=TRUE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+```{r asrsScrape, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
 
 ## asrs membership scrape and saved data
 
@@ -471,15 +565,194 @@ saveRDS(retina, "~/Desktop/projects/retina/asrsMembersUS.rds")
 
 
 
+##  retinaByFunctionPart2
+    - retina specialists who derive 70% of pmts from retina procedures
+```{r, echo = FALSE, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+codes =c("67028","92235","67228","67210","67145")
+
+
+## collect retina NPI and extract unique codes
+retinaNpi = c("1568536043",'1023069846')
+codes = data[npi %in% retinaNpi, .(codes1 = unique(code))]$codes
+
+
+#remove exam codes which is universal
+codes = gsub("99204|99203|92012|92014","",codes)
+codes = codes[nchar(codes)>0]
 
 
 
+# adds additional calcs
+addFields = function(data){
+  data$costPerProc = data$srvccnt * data$avgpmt 
+  data1  = data[, totalPatients := sum(uniquebene), by = .(npi)] 
+  data2 = data1[, totalPmt := sum(costPerProc), by =. (npi)]
+  data3 = data2[, pmtPerPatient := totalPmt/totalPatients, by =. (npi)] 
+  return(data)
+}
+
+
+
+
+
+
+# determines if revenue from meds > x% of revenue
+# determine if retina specialist
+fx1 = function(d){
+  u = unique(d$npi)
+  r = list();
+  s = list();
+  for (i in 1:length(u)) {
+    q= data.table(filter(d, npi == u[i]))
+    
+    q$costPerProc = q$srvccnt * q$avgpmt # total cost per procedure
+    
+    
+    q1  = q[, totalPatients := sum(uniquebene)] 
+    q2  = q1[, totalPmt := sum(costPerProc), by =. (npi)]
+    q3  = q2[, pmtPerPatient := totalPmt/totalPatients, by =. (npi)]
+    q4 = q3[code %in% codes]
+    retinaTotal = sum(q4$costPerProc)
+    allTotal = sum(q3$costPerProc)
+    #retinaStatus = ifelse(retinaTotal/allTotal > 0.7, "Y", "N")
+    
+    r[[i]] = ifelse(retinaTotal/allTotal > 0.5, "Y", "N")
+    s[[i]] = c(status = r[[i]], key =u[i])
+  }
+  t = data.frame(do.call(rbind, s))
+  t$val = as.character(t$status)
+  t$key = as.character(t$key)
+  
+  return(t)
+}
+
+
+ans = fx1(data3)
+
+retinaR = filter(ans, status =="Y")  #2097
+retinaR1 = data[npi %in% retinaR$key]  #16667
+names(retinaR2)
+#retinaR2 = addFields(retinaR1)
+
+median(retinaR1$pmtPerPatient)
+median(data3$pmtPerPatient)
+
+boxplot(retinaR1$pmtPerPatient)
+boxplot(data3$pmtPerPatient)
+```
+
+
+
+
+# wordcloud
+
+```{r wordcloud, echo = FALSE, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+
+examCodes = c("92002", "92004","92014", "92012","92004","92002","99214", "99204", "99213", "99214")
+
+text = data3$code
+text = text[!text %in% examCodes]
+
+
+lords<- Corpus(VectorSource(text))
+]
+# inspect(lords)
+# 
+# lords <- tm_map(lords, stripWhitespace)
+# 
+# lords <- tm_map(lords, tolower)
+# 
+# #lords <- tm_map(lords, removeWords, stopwords(“english”))
+# 
+# lords <- tm_map(lords, stemDocument)
+
+wordcloud(lords, scale=c(5,0.5), max.words=100, random.order=FALSE, rot.per=0.35, use.r.layout=FALSE, colors=brewer.pal(8, "Dark2"))
+
+
+#92134 - oct
+#92083 - vf
+#92020 - gonio
+#99214 - EM est office pt
+#92012 - est
+#92004 - new
+
+```
+
+
+
+
+
+
+## where do we fall in the big picture
+
+```{r, echo = FALSE, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+
+# med school count
+dataSolo = data[!duplicated(npi)]  #14635
+
+medSchoolCount = dataSolo[,.(.N), by = .(medicalschoolname)]
+
+
+# avg yearssince graduation
+hist(datax$yearSinceGrad, xlim = c(0,70), breaks = 20)
+
+mean(datax$yearSinceGrad)
+median(datax$yearSinceGrad)
+
+# avg yearssince graduation by state
+stateAge = datax[,.(avg = mean(yearSinceGrad)),by = .(state)]
+
+# CT, DC, WV = oldest states
+# NH, PR, Utah - youngest
+
+
+# expenditure and patients for each field
+cms14 = readRDS("~/Dropbox/cms/allData/cmsAll14.rds")
+cms14x = addFields(cms14)
+
+cms14Data = cms14x[,.(totalProv = length(unique(npi)), pts = sum(uniquebene),  totalPmt = sum(totalPmt), pmtPerPt = median(pmtPerPatient)),by = .(providertype)]
+
+
+
+
+
+
+
+```
+
+## questions
+- where does ophthalmolgy rank
+    - by patients
+    - by pmt
+    - by providers
+    
+- how old are ophthalmologists
+    - overall
+    - by state
+    - by county
+    - by gender
+    - compared to all
+
+- where are ophthalmolgists located?
+    - 
+
+- most common codes 
+    - ophthalmology
+        - with exam codes
+        - without exam codes
+    - all
+
+- specialists profiles
+
+- did release of data have an impact
+    
 
 
 ##  match asrs and cms data
 
 
-```{r, readCMSx, echo = FALSE, eval=TRUE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+```{r, readCMSx, echo = FALSE, eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
 
 ######################
 # read and prep data
@@ -491,9 +764,14 @@ asrsx = readRDS("~/Desktop/projects/retina/asrsMembersUS.rds")
 
 
 # retinal specialists by function
-asrsx1 = readRDS("~/Desktop/projects/retina/retinaListASRS.rds")
+#asrsx1 = readRDS("~/Desktop/projects/retina/retinaListASRS.rds")
 
-cmsx = readRDS("~/Dropbox/cms/arvo16/eyeDataWithDemoPopProfileCreatedDec316.rds")
+# not used in this section
+asrsx1 = readRDS("~/Desktop/projects/asrs17/retinaByFunctionWithND.rds")
+
+#cmsx = readRDS("~/Dropbox/cms/arvo16/eyeDataWithDemoPopProfileCreatedDec316.rds")
+# same data as read in the first module
+cmsx = datax
 
 
 #cmsx = readRDS("~/Desktop/projects/retina/cmsData14Enhanced.rds")
@@ -650,7 +928,7 @@ saveRDS(matchedF3, "~/Desktop/projects/retina/asrsCmsF.rds")
 
 
 
-```{r,eval=TRUE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
+```{r,eval=FALSE, echo=FALSE, error=FALSE, warning=FALSE, message=FALSE}
 
 
 ## read data
@@ -662,12 +940,13 @@ asrs1x = asrs1 %>% group_by(npi) %>% mutate(rank = row_number()) %>% filter(rank
 
 
 # retina by profile
-asrs2x = readRDS("~/Desktop/projects/retina/retinaListASRS.rds")
+#asrs2x = readRDS("~/Desktop/projects/retina/retinaListASRS.rds")
+asrs2x = readRDS("~/Desktop/projects/asrs17/retinaByFunctionWithND.rds")
 
 
 # cms enhanced - Ophth only and 2014 only
 cmsx = readRDS("~/Desktop/projects/retina/cmsData14Enhanced.rds")
-cmsx = cmsx[,-5] #duplicated column credentials
+#cmsx = cmsx[,-5] #duplicated column credentials
 
 
 
@@ -748,6 +1027,14 @@ cmsy$asrs = as.factor(cmsy$asrs)
 cmsy$fx = ifelse(cmsy$npi %in% npi2x, "y", "n")
 cmsy$fx = as.factor(cmsy$asrs)
 
+
+# need to merge the ND categories
+#
+# code goes here
+#
+
+
+
 cmsRetinaByFx = filter(cmsy, npi %in% npi2x)  #841 unique npi
 
 cmsRetinaByMembership = filter(cmsy, npi %in% npi1x)  #1227 unique npi
@@ -816,7 +1103,7 @@ dataWithCountyRatio = zz %>% group_by(county) %>%  mutate(provRatio = estimated_
 
 #### save data ###
 
-saveRDS(dataWithCountyRatio, "~/Desktop/projects/retina/asrsCmsFWithMembershipSstatus.rds")
+saveRDS(dataWithCountyRatio, "~/Desktop/projects/retina/asrsCmsFWithMembershipStatus.rds")
 ```
 
 
@@ -849,7 +1136,7 @@ saveRDS(dataWithCountyRatio, "~/Desktop/projects/retina/asrsCmsFWithMembershipSs
 
 ```{r model1, echo = FALSE, eval = TRUE}
 
-data = readRDS("~/Desktop/projects/retina/asrsCmsFWithMembershipSstatus.rds")
+data = readRDS("~/Desktop/projects/retina/asrsCmsFWithMembershipStatus.rds")
 
 dataCountyRank = data %>% arrange(provRatioCume)
 
@@ -982,7 +1269,32 @@ stateAvg = datasetx[,.(mean(levelNoDrug)),by = .(state)]
 
 
 
+# Overview
+- create df with cume_dist for pmtPerPatient 
+    - with drugs and without drugs
+    - pmtPerPatient without drugs
+    - pmtPerPatient with drugs
 
+- create df for retina providers
+    - criteria: injx, fa, prp, focal need to be performed
+    - with drugs and without drugs
+    - pmtPerPatient without drugs
+    - pmtPerPatient with drugs
+
+- conclusion
+    - retina reference data
+        - rank pmtPerPatient to all Ophth
+            - plot with retina in different color
+            - retina providers at the high end
+            
+```{r}
+qplot(carat, price, data = diamonds, colour = color)
+```
+
+        - rank pmtPerPatient to retina only
+            - plot with retina only
+
+        
 
 
 
